@@ -11,13 +11,10 @@ RICE_COLS = ["riceAfsc", "riceFsc", "riceAap"]
 # Features that go into scaling / PCA / clustering
 MODEL_FEATURES = [
     "log_avg_trans",   # shop size
-    "log_rice",        # rice volume (log fixes skew)
     "rice_per_card",   # commodity intensity per entitled card
-    "local_util",      # local use of the shop's own cards
     "port_share",      # share of transactions from other shops' cards
     "wheat_flag",      # shop distributes wheat (rare)
-    "trans_cv",        # volatility: std / mean of monthly transactions
-    "util_std",        # volatility of utilization across months
+    "trans_cv",        # volatility of monthly transactions
     "port_growth",     # change in portability share, first to last month
 ]
 
