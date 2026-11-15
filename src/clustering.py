@@ -53,11 +53,75 @@ def run_dbscan(Z_raw, min_samples=20):
 
 
 if __name__ == "__main__":
+    import matplotlib
+    matplotlib.use("Agg")
+    import matplotlib.pyplot as plt
+
+    K = 4
+    FIG = ROOT / "reports" / "figures"
+    FIG.mkdir(parents=True, exist_ok=True)
+    MODELS.mkdir(exist_ok=True)
+
     shops = pd.read_csv(PROCESSED / "shop_features.csv")
     m, Z, Z_raw, scaler, bounds = prepare(shops)
-    print("Modelling shops:", len(m), "| features:", MODEL_FEATURES)
 
-    ks = k_search(Z)
-    print("\nElbow / silhouette:\n", ks.round(3))
-    ks.to_csv(PROCESSED / "k_search.csv", index=False)
-    print("\nBest k by silhouette:", int(ks.loc[ks.silhouette.idxmax(), "k"]))
+    # --- Elbow + silhouette figure ---
+    ks = pd.read_csv(PROCESSED / "k_search.csv")
+    fig, ax = plt.subplots(1, 2, figsize=(11, 4))
+    ax[0].plot(ks.k, ks.inertia, marker="o"); ax[0].set_title("Elbow curve (inertia)")
+    ax[1].plot(ks.k, ks.silhouette, marker="o", color="#e76f51")
+    ax[1].axvline(K, ls="--", color="grey"); ax[1].set_title(f"Silhouette score (chosen k={K})")
+    for a in ax: a.set_xlabel("k")
+    plt.tight_layout(); plt.savefig(FIG / "elbow_silhouette.png", dpi=150); plt.close()
+
+    # --- Final K-Means ---
+    km = KMeans(n_clusters=K, n_init=20, random_state=42).fit(Z)
+    m["cluster"] = km.labels_
+
+    # --- PCA ---
+    pca = PCA(n_components=3, random_state=42).fit(Z)
+    m[["pc1", "pc2", "pc3"]] = pca.transform(Z)
+    print("PCA explained variance:", pca.explained_variance_ratio_.round(3),
+          "| cumulative (2D):", round(pca.explained_variance_ratio_[:2].sum(), 3))
+    loadings = pd.DataFrame(pca.components_[:3].T, index=MODEL_FEATURES,
+                            columns=["PC1", "PC2", "PC3"]).round(2)
+    print("\nPCA loadings:\n", loadings)
+
+    # --- DBSCAN (unclipped data, so extreme shops stay extreme) ---
+    labels, eps = run_dbscan(Z_raw)
+    m["dbscan_label"] = labels
+    m["is_outlier"] = labels == -1
+    print(f"\nDBSCAN eps={eps:.3f} | noise shops: {m.is_outlier.sum()} "
+          f"({m.is_outlier.mean():.1%}) | dense clusters found: {len(set(labels)) - (1 if -1 in labels else 0)}")
+    print("\nK-Means cluster vs DBSCAN outlier:\n", pd.crosstab(m.cluster, m.is_outlier))
+
+    # --- Cluster profile (mean of every feature) ---
+    cols = MODEL_FEATURES + ["avg_trans", "avg_cards", "util", "local_util"]
+    profile = m.groupby("cluster")[cols].mean()
+    profile["shops"] = m.groupby("cluster").size()
+    profile["pct_outlier"] = m.groupby("cluster")["is_outlier"].mean() * 100
+    pd.set_option("display.width", 250); pd.set_option("display.max_columns", 30)
+    print("\nCLUSTER PROFILE:\n", profile.round(3).T)
+    profile.round(4).to_csv(PROCESSED / "cluster_profile.csv")
+
+    # --- Urban vs rural mix (for the cluster-purity metric) ---
+    urban_kw = ["hyderabad", "medchal", "ranga"]
+    m["urban_zone"] = m["distName"].str.lower().str.contains("|".join(urban_kw))
+    print("\nDistricts treated as urban:", sorted(m.loc[m.urban_zone, "distName"].unique()))
+    print("Share of each cluster in urban districts:\n",
+          m.groupby("cluster")["urban_zone"].mean().round(3))
+
+    # --- PCA scatter ---
+    fig, ax = plt.subplots(figsize=(8, 6))
+    sc = ax.scatter(m.pc1, m.pc2, c=m.cluster, cmap="tab10", s=4, alpha=.5)
+    ax.scatter(m.loc[m.is_outlier, "pc1"], m.loc[m.is_outlier, "pc2"],
+               facecolors="none", edgecolors="red", s=25, lw=.6, label="DBSCAN noise")
+    ax.set_xlabel("PC1"); ax.set_ylabel("PC2"); ax.legend(*sc.legend_elements(), title="Cluster", loc="upper right")
+    ax.set_title("Shops in PCA space (K-Means colours, red rings = DBSCAN noise)")
+    plt.tight_layout(); plt.savefig(FIG / "pca_clusters.png", dpi=150); plt.close()
+
+    # --- Save models and results ---
+    joblib.dump({"scaler": scaler, "pca": pca, "kmeans": km, "clip_bounds": bounds,
+                 "features": MODEL_FEATURES}, MODELS / "pds_models.pkl")
+    m.to_csv(PROCESSED / "shop_clusters.csv", index=False)
+    print("\nSaved: shop_clusters.csv, cluster_profile.csv, models/pds_models.pkl, figures")
