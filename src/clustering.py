@@ -121,7 +121,13 @@ if __name__ == "__main__":
     plt.tight_layout(); plt.savefig(FIG / "pca_clusters.png", dpi=150); plt.close()
 
     # --- Save models and results ---
+        # --- Save models and results ---
     joblib.dump({"scaler": scaler, "pca": pca, "kmeans": km, "clip_bounds": bounds,
                  "features": MODEL_FEATURES}, MODELS / "pds_models.pkl")
+
+    PERSONAS = {0: "Urban Portability Hubs", 1: "Typical Rural Local Shops",
+                2: "Volatile Low-Volume Shops", 3: "Semi-Urban Portability Shops"}
+    m["persona"] = m["cluster"].map(PERSONAS)
+
     m.to_csv(PROCESSED / "shop_clusters.csv", index=False)
     print("\nSaved: shop_clusters.csv, cluster_profile.csv, models/pds_models.pkl, figures")
