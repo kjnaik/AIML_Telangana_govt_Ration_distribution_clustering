@@ -5,3 +5,5 @@ __pycache__/
 *.pyc
 .env
 data/raw/
+data/processed/master_monthly.csv
+inspect_output.txt
